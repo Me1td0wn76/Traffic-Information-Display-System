@@ -16,31 +16,31 @@ class RailwayOperatorSeeder extends Seeder
             [
                 'name' => 'JR西日本',
                 'slug' => 'jr-west',
-                'yahoo_url' => 'https://transit.yahoo.co.jp/diainfo/area/6', // 近畿エリア
+                'yahoo_url' => 'https://transit.yahoo.co.jp/diainfo/area/6#item8', // 近畿エリア - JR西日本セクション
                 'is_active' => true,
             ],
             [
                 'name' => '近畿日本鉄道',
                 'slug' => 'kintetsu',
-                'yahoo_url' => 'https://transit.yahoo.co.jp/diainfo/163/0',
+                'yahoo_url' => 'https://transit.yahoo.co.jp/diainfo/area/6#item230', // 近畿エリア - 近鉄セクション
                 'is_active' => true,
             ],
             [
                 'name' => '阪急電鉄',
                 'slug' => 'hankyu',
-                'yahoo_url' => 'https://transit.yahoo.co.jp/diainfo/164/0',
+                'yahoo_url' => 'https://transit.yahoo.co.jp/diainfo/area/6#item306', // 近畿エリア - 阪急セクション
                 'is_active' => true,
             ],
             [
                 'name' => '大阪メトロ',
                 'slug' => 'osaka-metro',
-                'yahoo_url' => 'https://transit.yahoo.co.jp/diainfo/94/0',
+                'yahoo_url' => 'https://transit.yahoo.co.jp/diainfo/area/6#item321', // 近畿エリア - 大阪メトロセクション
                 'is_active' => true,
             ],
             [
                 'name' => '南海電鉄',
                 'slug' => 'nankai',
-                'yahoo_url' => 'https://transit.yahoo.co.jp/diainfo/165/0',
+                'yahoo_url' => 'https://transit.yahoo.co.jp/diainfo/area/6#item339', // 近畿エリア - 南海セクション
                 'is_active' => true,
             ],
         ];

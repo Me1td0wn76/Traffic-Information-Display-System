@@ -15,6 +15,11 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
+        // 鉄道事業者のSeederを実行
+        $this->call([
+            RailwayOperatorSeeder::class,
+        ]);
+
         // User::factory(10)->create();
 
         User::factory()->create([

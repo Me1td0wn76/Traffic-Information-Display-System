@@ -35,19 +35,24 @@ class ScrapeTrainInfo extends Command
             $this->info(' スクレイピング完了');
             $this->newLine();
 
+            if (empty($results)) {
+                $this->warn('  結果が空です');
+                return 1;
+            }
+
             foreach ($results as $slug => $result) {
-                if ($result['success']) {
+                if (isset($result['success']) && $result['success']) {
                     $this->line(sprintf(
                         '  %s: %d路線 (遅延: %d)',
-                        $result['operator'],
-                        $result['lines_count'],
-                        $result['delayed_count']
+                        $result['operator'] ?? $slug,
+                        $result['lines_count'] ?? 0,
+                        $result['delayed_count'] ?? 0
                     ));
                 } else {
                     $this->error(sprintf(
                         '  %s: エラー - %s',
                         $slug,
-                        $result['error']
+                        $result['error'] ?? 'Unknown error'
                     ));
                 }
             }
@@ -56,6 +61,7 @@ class ScrapeTrainInfo extends Command
 
         } catch (\Exception $e) {
             $this->error('エラーが発生しました: ' . $e->getMessage());
+            $this->error('Trace: ' . $e->getTraceAsString());
             return 1;
         }
 

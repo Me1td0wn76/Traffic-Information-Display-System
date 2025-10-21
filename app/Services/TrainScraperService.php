@@ -11,71 +11,61 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Carbon\Carbon;
 
-/**
- * 電車運行情報取得サービス
- * 
- * Yahoo!路線情報からスクレイピングを行います。
- * サーバー負荷を最小限にするため、以下の対策を実施：
- * - 30分に1回のみ実行（キャッシュ使用）
- * - 各リクエスト間に2秒の待機時間
- * - 適切なUser-Agentの設定
- */
 class TrainScraperService
 {
     protected Client $client;
-    
-    /**
-     * キャッシュの有効期間（分）
-     */
     const CACHE_DURATION = 30;
 
     public function __construct()
     {
         $this->client = new Client([
             'timeout' => 30,
-            'verify' => false, // SSL証明書の検証を無効化（開発環境のみ）
+            'verify' => false,
             'headers' => [
-                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-                'Accept-Language' => 'ja,en-US;q=0.9,en;q=0.8',
+                'User-Agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
             ],
         ]);
-    }    /**
-     * 全ての鉄道事業者の運行情報をスクレイピング
-     */
+    }
+
     public function scrapeAll(): array
     {
         $results = [];
         $operators = RailwayOperator::where('is_active', true)->get();
 
         foreach ($operators as $operator) {
+            $cacheKey = "train_info_{$operator->slug}";
+            $cachedResult = Cache::get($cacheKey);
+
+            if ($cachedResult !== null) {
+                Log::info("キャッシュから取得: {$operator->name}");
+                $results[$operator->slug] = $cachedResult;
+                continue;
+            }
+
             try {
                 Log::info("スクレイピング開始: {$operator->name}");
-                $results[$operator->slug] = $this->scrapeOperator($operator);
-
-                // サーバーに負荷をかけないよう少し待機
+                $result = $this->scrapeOperator($operator);
+                $results[$operator->slug] = $result;
+                Cache::put($cacheKey, $result, now()->addMinutes(self::CACHE_DURATION));
                 sleep(2);
             } catch (\Exception $e) {
-                Log::error("スクレイピングエラー ({$operator->name}): " . $e->getMessage());
-                $results[$operator->slug] = [
-                    'success' => false,
-                    'error' => $e->getMessage(),
-                ];
+                Log::error("エラー ({$operator->name}): " . $e->getMessage());
+                $results[$operator->slug] = ['success' => false, 'error' => $e->getMessage()];
             }
         }
-
         return $results;
     }
 
-    /**
-     * 特定の鉄道事業者の運行情報を取得（モックデータ）
-     */
     public function scrapeOperator(RailwayOperator $operator): array
     {
-        // モックデータから路線情報を生成
-        $trainData = $this->generateMockData($operator);
+        if (!$operator->yahoo_url) {
+            throw new \Exception("Yahoo URLが設定されていません");
+        }
 
-        // データベースに保存
+        $response = $this->client->get($operator->yahoo_url);
+        $html = $response->getBody()->getContents();
+        $crawler = new Crawler($html);
+        $trainData = $this->parseTrainInfo($crawler, $operator);
         $this->saveOperationStatuses($operator, $trainData);
 
         return [
@@ -86,88 +76,97 @@ class TrainScraperService
         ];
     }
 
-    /**
-     * モックデータを生成
-     */
-    protected function generateMockData(RailwayOperator $operator): array
+    protected function parseTrainInfo(Crawler $crawler, RailwayOperator $operator): array
     {
         $trainData = [];
-        $lines = $this->mockLineData[$operator->slug] ?? [];
 
-        if (empty($lines)) {
-            Log::warning("{$operator->name}のモックデータが定義されていません");
-            return [];
-        }
-
-        foreach ($lines as $line) {
-            // 確率に基づいてランダムに遅延を発生させる
-            $random = rand(1, 100);
-
-            if ($random <= $line['probability']) {
-                // 遅延発生
-                $statuses = ['delay', 'partial_suspended', 'suspended'];
-                $status = $statuses[array_rand($statuses)];
-
-                $messages = [
-                    'delay' => [
-                        '人身事故の影響で、遅れが出ています。',
-                        '信号トラブルの影響で、遅れが出ています。',
-                        '車両点検の影響で、遅れが出ています。',
-                        '強風の影響で、遅れが出ています。',
-                    ],
-                    'partial_suspended' => [
-                        '人身事故の影響で、一部区間で運転を見合わせています。',
-                        '線路内人立入の影響で、一部区間で運転を見合わせています。',
-                    ],
-                    'suspended' => [
-                        '大雨の影響で、全線で運転を見合わせています。',
-                        '事故の影響で、運転を見合わせています。',
-                    ],
-                ];
-
-                $message = $messages[$status][array_rand($messages[$status])];
-            } else {
-                // 平常運転
-                $status = 'normal';
-                $message = '平常運転';
+        try {
+            // URLからアンカーIDを抽出 (例: #item8 → item8)
+            $anchorId = '';
+            if (preg_match('/#(.+)$/', $operator->yahoo_url, $matches)) {
+                $anchorId = $matches[1];
             }
 
-            $trainData[] = [
-                'line_name' => $line['name'],
-                'status' => $status,
-                'message' => $message,
-            ];
+            if (empty($anchorId)) {
+                Log::warning("アンカーIDが見つかりません: {$operator->yahoo_url}");
+                return $trainData;
+            }
+
+            // XPathで <h3 id="item8"> の次の <div class="elmTblLstLine"> を探す
+            // HTML構造: <div class="labelSmall"><h3 id="item8"></h3></div><div class="elmTblLstLine">...
+            $section = $crawler->filterXPath("//h3[@id='{$anchorId}']/ancestor::div[@class='labelSmall']/following-sibling::div[@class='elmTblLstLine'][1]");
+
+            if ($section->count() === 0) {
+                Log::warning("セクションが見つかりません: h3#{$anchorId} for {$operator->name}");
+                return $trainData;
+            }
+
+            // 該当セクション内のテーブル行を解析
+            $section->filter('table tbody tr')->each(function (Crawler $row) use (&$trainData) {
+                try {
+                    if ($row->filter('th')->count() > 0) return;
+                    $cells = $row->filter('td');
+                    if ($cells->count() < 3) return;
+
+                    $lineNameNode = $cells->eq(0)->filter('a')->first();
+                    if ($lineNameNode->count() === 0) return;
+
+                    $lineName = trim($lineNameNode->text());
+                    $statusText = trim($cells->eq(1)->text());
+                    $message = trim($cells->eq(2)->text());
+                    $hasTrouble = $cells->eq(1)->filter('.colTrouble')->count() > 0;
+
+                    if ($hasTrouble || $statusText !== '平常運転') {
+                        $status = $this->determineStatus($statusText, $message);
+                    } else {
+                        $status = 'normal';
+                    }
+
+                    $trainData[] = [
+                        'line_name' => $lineName,
+                        'status' => $status,
+                        'message' => $message !== '事故・遅延情報はありません' ? $message : '平常運転',
+                    ];
+                } catch (\Exception $e) {
+                    Log::warning("解析エラー: " . $e->getMessage());
+                }
+            });
+
+            Log::info("{$operator->name}: " . count($trainData) . "路線を検出");
+        } catch (\Exception $e) {
+            Log::error("HTML解析エラー ({$operator->name}): " . $e->getMessage());
         }
 
-        Log::info("{$operator->name}: " . count($trainData) . "路線のモックデータを生成");
-
         return $trainData;
+    }    protected function determineStatus(string $statusText, string $message): string
+    {
+        $text = $statusText . ' ' . $message;
+        if (str_contains($text, '運休') || str_contains($text, '運転見合わせ')) {
+            return str_contains($text, '一部') ? 'partial_suspended' : 'suspended';
+        }
+        if (str_contains($text, '遅延') || str_contains($text, '遅れ') || str_contains($text, '列車遅延')) {
+            return 'delay';
+        }
+        if (str_contains($text, '運転計画')) {
+            return 'delay';
+        }
+        return 'normal';
     }
 
-    /**
-     * 運行状況をデータベースに保存
-     */
     protected function saveOperationStatuses(RailwayOperator $operator, array $trainData): void
     {
         $checkedAt = Carbon::now();
-
         foreach ($trainData as $data) {
-            // 路線を検索または作成
-            $slug = $this->createSlug($data['line_name']);
-            Log::info("Saving: {$data['line_name']} (slug: {$slug})");
-
             $trainLine = TrainLine::firstOrCreate(
                 [
                     'railway_operator_id' => $operator->id,
-                    'slug' => $slug,
+                    'slug' => $this->createSlug($data['line_name']),
                 ],
                 [
                     'name' => $data['line_name'],
                     'is_active' => true,
                 ]
             );
-
-            // 運行状況を保存
             OperationStatus::create([
                 'train_line_id' => $trainLine->id,
                 'status' => $data['status'],
@@ -177,16 +176,12 @@ class TrainScraperService
         }
     }
 
-    /**
-     * 路線名からスラッグを生成
-     */
     protected function createSlug(string $name): string
     {
-        // 日本語を含む路線名のため、URLエンコードを使用
         $slug = strtolower($name);
-        $slug = preg_replace('/\s+/', '-', $slug); // スペースをハイフンに
-        $slug = preg_replace('/[^\w\-]/u', '-', $slug); // 日本語を含む文字を保持
-        $slug = preg_replace('/-+/', '-', $slug); // 連続するハイフンを1つに
+        $slug = preg_replace('/\s+/', '-', $slug);
+        $slug = preg_replace('/[^\w\-]/u', '-', $slug);
+        $slug = preg_replace('/-+/', '-', $slug);
         return trim($slug, '-');
     }
 }
