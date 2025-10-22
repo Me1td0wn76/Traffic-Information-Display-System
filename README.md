@@ -2,7 +2,7 @@
 
 大阪を中心とした近畿地方の主要鉄道事業者の運行情報を表示するシステムです。
 
-## ⚠️ 重要な注意事項
+##  重要な注意事項
 
 **このシステムはYahoo!路線情報からスクレイピングを行います。**
 
@@ -39,6 +39,62 @@
 - `GET /api/train/line/{lineId}/history` - 特定路線の運行状況履歴を取得
 
 ## セットアップ
+
+### 0. PHP設定の確認（初回のみ）
+
+このプロジェクトを実行するには、以下のPHP拡張機能が有効になっている必要があります。
+
+#### 必要な拡張機能
+
+- **openssl** - SSL/TLS通信に必要（Composerやスクレイピングで使用）
+- **fileinfo** - ファイルタイプの検出に必要
+- **mbstring** - マルチバイト文字列処理に必要（Laravel必須）
+- **pdo_sqlite** - SQLiteデータベースの使用に必要
+
+#### php.iniの設定方法
+
+1. **php.iniファイルの場所を確認:**
+   ```bash
+   php --ini
+   ```
+
+2. **php.iniファイルを編集:**
+   
+   以下の行を探して、行頭の `;` を削除して有効化します:
+   
+   ```ini
+   ;extension_dir = "ext"    → extension_dir = "ext"
+   ;extension=openssl        → extension=openssl
+   ;extension=fileinfo       → extension=fileinfo
+   ;extension=mbstring       → extension=mbstring
+   ;extension=pdo_sqlite     → extension=pdo_sqlite
+   ```
+
+3. **設定を確認:**
+   ```bash
+   php -m | findstr "openssl fileinfo mbstring pdo_sqlite"
+   ```
+   
+   上記のコマンドで4つの拡張機能が表示されればOKです。
+
+#### Windows (Scoop)でPHPをインストールしている場合
+
+通常、php.iniは以下のパスにあります:
+```
+C:\Users\<ユーザー名>\scoop\apps\php8.4\current\php.ini
+```
+
+PowerShellで一括設定する場合:
+```powershell
+$phpIni = "C:\Users\<ユーザー名>\scoop\apps\php8.4\current\php.ini"
+$content = Get-Content $phpIni
+$content = $content -replace '^;extension_dir = "ext"', 'extension_dir = "ext"'
+$content = $content -replace '^;extension=openssl', 'extension=openssl'
+$content = $content -replace '^;extension=fileinfo', 'extension=fileinfo'
+$content = $content -replace '^;extension=mbstring', 'extension=mbstring'
+$content = $content -replace '^;extension=pdo_sqlite', 'extension=pdo_sqlite'
+$content | Set-Content $phpIni
+```
 
 ### 1. 依存パッケージのインストール
 
