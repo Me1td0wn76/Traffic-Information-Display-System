@@ -133,6 +133,30 @@ php artisan train:scrape
 
 **注意**: このコマンドはYahoo!路線情報からスクレイピングを行います。30分間キャッシュされるため、頻繁な実行は行われません。
 
+#### スクレイピングのログ確認
+
+スクレイピングの実行状況は `storage/logs/laravel.log` に詳細に記録されます:
+
+```bash
+# ログの確認
+Get-Content storage\logs\laravel.log -Tail 50
+```
+
+**ログに記録される情報:**
+- スクレイピング開始・完了時刻
+- キャッシュヒット/ミス（30分以内の再実行はキャッシュから取得）
+- 実際にスクレイピングした事業者数
+- 各事業者の路線数・遅延数・更新数
+- キャッシュの有効期限（次回スクレイピング時刻）
+
+**キャッシュの動作例:**
+```
+初回実行: cache_hits=0, cache_misses=5, actual_scrapes=5 (全事業者をスクレイピング)
+2回目(30分以内): cache_hits=5, cache_misses=0, actual_scrapes=0 (全てキャッシュから取得)
+30分後: cache_hits=0, cache_misses=5, actual_scrapes=5 (再度スクレイピング)
+```
+
+
 ### 5. 開発サーバーの起動
 
 ```bash
