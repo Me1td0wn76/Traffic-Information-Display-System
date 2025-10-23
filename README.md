@@ -133,6 +133,13 @@ php artisan train:scrape
 
 **注意**: このコマンドはYahoo!路線情報からスクレイピングを行います。30分間キャッシュされるため、頻繁な実行は行われません。
 
+### 5.暗号化キーのセットアップ
+
+```bash  
+# APP_KEYに暗号化キーを自動で入れる。  
+php artisan key:generate  
+```
+
 #### スクレイピングのログ確認
 
 スクレイピングの実行状況は `storage/logs/laravel.log` に詳細に記録されます:
